@@ -3,6 +3,9 @@ JSONAnnotatedParser
 
 Add semantical JSON parsing to your models using java annotations.
 
+### Dependencies
+JSONAnnotatedParser requires json.org java classes
+
 ### Overview
 
 With JSONAnnotatedParser you can go from

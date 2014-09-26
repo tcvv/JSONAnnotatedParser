@@ -7,8 +7,8 @@ Add semantical JSON parsing to your models using java annotations.
 
 With JSONAnnotatedParser you can go from
 
-  public static Album albumFromJSON(JSONObject albumJSON)
-  {
+    public static Album albumFromJSON(JSONObject albumJSON)
+    {
             Long id = null;
             String artistName = null;
             String name = null;
@@ -33,31 +33,25 @@ With JSONAnnotatedParser you can go from
             catch(Exception e){...}
             
             return new Album(id, artistName, name, tracks);
-  }
-  
-  ...
+    }
+    ...
   
 To
 
-  public class Album implements Parsable
-  { 
-    @JSON.Value(key = "id", type = JSON.Type.LONG)
-    private Long id;
-    
-    @JSON.Value(key = "name", type = JSON.Type.STRING)
-    private String name;
-    
-    @JSON.Value(key = "artist", type = JSON.Type.STRING)
-    private String artistName;
-    
-    @JSON.ValueCollection(key = "tracks", of = JSON.Type.OBJ)
-    @JSON.ParseAs(Track.class)
-    private List<Track> tracks;
-    
-    ...
-    
-    public static Album fromJSON(JSONObject albumJSON)
-    {
-      return FromJSON.create(albumJSON, Album.class);
+    public class Album implements Parsable
+    { 
+      @JSON.Value(key = "id", type = JSON.Type.LONG)
+      private Long id;
+      @JSON.Value(key = "name", type = JSON.Type.STRING)
+      private String name;
+      @JSON.Value(key = "artist", type = JSON.Type.STRING)
+      private String artistName;
+      @JSON.ValueCollection(key = "tracks", of = JSON.Type.OBJ)
+      @JSON.ParseAs(Track.class)
+      private List<Track> tracks;
+      ...
+      public static Album fromJSON(JSONObject albumJSON)
+      {
+        return FromJSON.create(albumJSON, Album.class);
+      }
     }
-  }

@@ -30,6 +30,7 @@ public abstract class JSONAnnotationParser
                    InvalidMemberException
     {
         T result;
+        boolean acessible;
 
         try
         {
@@ -62,10 +63,11 @@ public abstract class JSONAnnotationParser
 
             try
             {
+            	acessible = f.isAccessible();
             	// -- > allow me, it's just this one time
             	f.setAccessible(true);
                 f.set(result, o);
-                f.setAccessible(false);
+                f.setAccessible(acessible);
             }
             catch (IllegalAccessException e)
             {
@@ -97,10 +99,11 @@ public abstract class JSONAnnotationParser
 
             try
             {
+            	acessible = m.isAccessible();
             	// -- > allow me, it's just this one time
             	m.setAccessible(true);
                 m.invoke(result, o);
-                m.setAccessible(false);
+                m.setAccessible(acessible);
             }
             catch (IllegalAccessException e)
             {

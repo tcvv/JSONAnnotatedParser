@@ -151,6 +151,23 @@ public class FailSafeParser
             return new JSONArray();
         }
     }
+    
+    /**
+     * @return 
+     *  a JSONArray in the given position; 
+     *  an empty JSONArray if none is obtainable
+     */
+    public static JSONArray getJSONArray(JSONArray obj, int pos)
+    {
+        try
+        {
+            return obj.getJSONArray(pos);
+        }
+        catch (JSONException e)
+        {
+            return new JSONArray();
+        }
+    }
 
     /**
      * @return

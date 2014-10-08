@@ -1,6 +1,8 @@
 package me.tiagovalente.jsonannotation;
 
+import me.tiagovalente.jsonannotation.JSONAnnotationParser.InvalidMemberException;
 import me.tiagovalente.jsonannotation.JSONAnnotationParser.JSONParserException;
+
 import org.json.JSONObject;
 
 /**
@@ -39,6 +41,10 @@ public interface JSONParsable
 				result = JSONAnnotationParser.parse(jsonObject, target);
 			}
 			catch (JSONParserException e)
+			{
+				System.err.println(e.getHumanReadableReason());
+			}
+			catch (InvalidMemberException e)
 			{
 				System.err.println(e.getHumanReadableReason());
 			}

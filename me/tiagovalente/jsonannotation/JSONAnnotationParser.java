@@ -1,11 +1,18 @@
 package me.tiagovalente.jsonannotation;
 
-import java.lang.annotation.Annotation;
+import java.lang.reflect.Array;
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Date;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -21,13 +28,9 @@ import org.json.JSONObject;
  * @since 1.0.0
  */
 public abstract class JSONAnnotationParser
-{
+{	
     public static <T extends JSONParsable> T parse(JSONObject obj, Class<T> objType)
-            throws InvalidAnnotationException,
-                   UnparsableTypeException,
-                   MissingAnnotationException,
-                   DuplicatedAnnotationException,
-                   InvalidMemberException
+            throws JSONParserException, InvalidMemberException
     {
         T result;
         boolean acessible;
@@ -38,415 +41,481 @@ public abstract class JSONAnnotationParser
         }
         catch (InstantiationException e)
         {
-            throw new UnparsableTypeException(objType, UnparsableTypeException.UnparsableReason.NO_EMPTY_CONSTRUCTOR);
+            throw new JSONParserException(objType, JSONParserException.Reason.NON_INSTANCEABLE);
         }
         catch (IllegalAccessException e)
         {
-            throw new UnparsableTypeException(objType, UnparsableTypeException.UnparsableReason.NOT_ACCESSIBLE);
+            throw new JSONParserException(objType, JSONParserException.Reason.NON_ACCESSIBLE);
         }
 
         // Fields
         for( Field f : objType.getDeclaredFields() )
         {
-            JSON.Value ann = f.getAnnotation(JSON.Value.class);
-            JSON.ValueCollection collection_ann = f.getAnnotation(JSON.ValueCollection.class);
-            JSON.ParseAs parse_as = f.getAnnotation(JSON.ParseAs.class);
+            JSON ann = f.getAnnotation(JSON.class);
 
             // -- > if this field isn't annotated, move on
-            if(ann == null && collection_ann == null) continue;
+            if(ann == null) continue;
+            
+            // -- > infer or get the key
+            String key = ann.key().equals("") ? f.getName() : ann.key() ;
+            
+            // -- > infer the type
+            TypeNode type = TypeNode.build(f);
+                        
+            // --> do the hard work
+            Object o = processKeyForJSONObj(obj, type, key);
 
-            // -- > if this field is annotated twice, throw Exception
-            if(ann != null && collection_ann != null)
-                throw new DuplicatedAnnotationException(objType, f, null);
-
-            Object o = process(obj, objType, ann, collection_ann, parse_as);
-
+            acessible = f.isAccessible();
+            
             try
             {
-            	acessible = f.isAccessible();
             	// -- > allow me, it's just this one time
             	f.setAccessible(true);
                 f.set(result, o);
-                f.setAccessible(acessible);
             }
             catch (IllegalAccessException e)
             {
-                throw new InvalidMemberException(objType, f, null);
+                throw new InvalidMemberException(objType, f);
+            }
+            finally
+            {
+                // -- > there, back to normal!
+                f.setAccessible(acessible);
             }
         }
 
         // Transformations
-        for(Method m : objType.getDeclaredMethods())
-        {
-            JSON.TransformationMethod tm = m.getAnnotation(JSON.TransformationMethod.class);
-
-            JSON.ValueCollection collection_ann = m.getAnnotation(JSON.ValueCollection.class);
-            JSON.Value ann = m.getAnnotation(JSON.Value.class);
-            JSON.ParseAs parse_as = m.getAnnotation(JSON.ParseAs.class);
-
-            // -- > if this field isn't annotated, move on
-            if(tm == null) continue;
-
-            // -- > if this field hasn't more annotations, throw exception
-            if(ann == null && collection_ann == null)
-                throw new MissingAnnotationException(JSON.Value.class, objType, null, m);
-
-            // -- > if this field is annotated twice, throw Exception
-            if(ann != null && collection_ann != null)
-                throw new DuplicatedAnnotationException(objType, null, m);
-
-            Object o = process(obj, objType, ann, collection_ann, parse_as);
-
-            try
-            {
-            	acessible = m.isAccessible();
-            	// -- > allow me, it's just this one time
-            	m.setAccessible(true);
-                m.invoke(result, o);
-                m.setAccessible(acessible);
-            }
-            catch (IllegalAccessException e)
-            {
-                throw new UnparsableTypeException(objType, UnparsableTypeException.UnparsableReason.NOT_ACCESSIBLE);
-            }
-            catch (InvocationTargetException e)
-            {
-                throw new UnparsableTypeException(objType, UnparsableTypeException.UnparsableReason.NO_EMPTY_CONSTRUCTOR);
-            }
-        }
+//        for(Method m : objType.getDeclaredMethods())
+//        {
+//            JSON.TransformationMethod tm = m.getAnnotation(JSON.TransformationMethod.class);
+//
+//            JSON.ValueCollection collection_ann = m.getAnnotation(JSON.ValueCollection.class);
+//            JSON.Value ann = m.getAnnotation(JSON.Value.class);
+//            JSON.ParseAs parse_as = m.getAnnotation(JSON.ParseAs.class);
+//
+//            // -- > if this field isn't annotated, move on
+//            if(tm == null) continue;
+//
+//            // -- > if this field hasn't more annotations, throw exception
+//            if(ann == null && collection_ann == null)
+//                throw new MissingAnnotationException(JSON.Value.class, objType, null, m);
+//
+//            // -- > if this field is annotated twice, throw Exception
+//            if(ann != null && collection_ann != null)
+//                throw new DuplicatedAnnotationException(objType, null, m);
+//
+//            Object o = process(obj, objType, ann, collection_ann, parse_as);
+//
+//            try
+//            {
+//            	acessible = m.isAccessible();
+//            	// -- > allow me, it's just this one time
+//            	m.setAccessible(true);
+//                m.invoke(result, o);
+//                m.setAccessible(acessible);
+//            }
+//            catch (IllegalAccessException e)
+//            {
+//                throw new UnparsableTypeException(objType, UnparsableTypeException.UnparsableReason.NOT_ACCESSIBLE);
+//            }
+//            catch (InvocationTargetException e)
+//            {
+//                throw new UnparsableTypeException(objType, UnparsableTypeException.UnparsableReason.NO_EMPTY_CONSTRUCTOR);
+//            }
+//        }
 
         return result;
     }
 
-    private static Object process(JSONObject obj, Class objType, JSON.Value ann, JSON.ValueCollection c_ann, JSON.ParseAs parse_as)
-            throws
-            MissingAnnotationException,
-            InvalidAnnotationException,
-            UnparsableTypeException,
-            InvalidMemberException,
-            DuplicatedAnnotationException
-
+    /** JSONObject json is the containing JSON object with keys */
+    private static Object processKeyForJSONObj(JSONObject json, TypeNode type, String key)
+    		throws JSONParserException, InvalidMemberException
     {
-        Object o;
+        Object result = null;
         
-        String key;
-        JSON.Type type;
-
-        if(ann != null) // Value
+        switch (type.getTypeNodeGroup())
         {
-            key = ann.key();
-            type = ann.type();
-
-            switch(type)
-            {
-                case OBJ:
-                    if (parse_as == null)
-                        throw new MissingAnnotationException(JSON.ParseAs.class, objType, null, null);
-
-                    JSONObject temp = FailSafeParser.getJSONObject(obj,key);
-
-                    o = temp != null ? parse(temp, parse_as.value()) : null; 
-
-                    break;
-
-                default:
-                    o = getPrimalValue(obj, key, type);
-            }
-        }
-        else // ValueCollection
-        {
-            key = c_ann.key();
-            type = c_ann.of();
-
-            JSONArray jarr = FailSafeParser.getJSONArray(obj, key);
-
-            if(jarr == null) o = new LinkedList();
-            else
-            {
-                switch(type)
-                {
-                    case OBJ:
-                        if (parse_as == null)
-                            throw new MissingAnnotationException(JSON.ParseAs.class, objType, null, null);
-
-                        o = getCollection(jarr, type, parse_as.value());
-                        break;
-
-                    default:
-                        o = getCollection(jarr, type, null);
-                }
-            }
-        }
-
-        return o;
-    }
-
-    private static List getCollection(JSONArray arr, JSON.Type type, Class cls)
-            throws
-            UnparsableTypeException,
-            MissingAnnotationException,
-            InvalidAnnotationException,
-            InvalidMemberException,
-            DuplicatedAnnotationException
-
-    {
-        List result = new LinkedList();
-        Object value = null;
-
-        for(int i = 0; i < arr.length(); i++)
-        {
-            switch(type)
-            {
-                case STRING:
-                    value = FailSafeParser.getString(arr, i);
-                    break;
-
-                case INT:
-                    value = FailSafeParser.getInt(arr, i);
-                    break;
-
-                case LONG:
-                    value = FailSafeParser.getLong(arr, i);
-                    break;
-
-                case BOOL:
-                    value = FailSafeParser.getBool(arr, i);
-                    break;
-
-                case DOUBLE:
-                    value = FailSafeParser.getDouble(arr, i);
-                    break;
-
-                case DATE:
-                    value = FailSafeParser.getDate(arr, i);
-                    break;
-
-                case OBJ:
-                    JSONObject obj = FailSafeParser.getJSONObject(arr, i);
-                    if(obj != null) value = parse(obj, cls);
-                    break;
-            }
-
-            if(value!=null) result.add(value);
-        }
-
+			case Primitive:
+				result = getPrimitiveValue(json, type.actualType, key);
+				break;
+			
+			case Collection:
+			{
+				JSONArray array = FailSafeParser.getJSONArray(json, key);
+				result = process(array, type);
+			} break;
+			
+//			case Map:
+//			{				
+//				JSONObject map = FailSafeParser.getJSONObject(json, key);
+//				Map mapFromJSON = new HashMap();
+//				
+//				Iterator keyIterator = map.keys();
+//				String k;
+//				
+//				while(keyIterator.hasNext())
+//				{
+//					k = (String) keyIterator.next();
+//					result.
+//					
+//				}
+//			} break;
+			
+			case Object:
+			{
+				JSONObject jobj = FailSafeParser.getJSONObject(json, key);
+				result = parse(jobj, type.getNodeActualType());
+				
+			} break;
+			
+			case Unparsable: default:
+				throw new JSONParserException(type.getNodeActualType(), JSONParserException.Reason.NON_PARSABLE);
+			
+		}
+                
         return result;
     }
-
-    private static Object getPrimalValue(JSONObject json, String key, JSON.Type type)
+    
+    private static Object process(JSONArray array, TypeNode type) 
+    		throws JSONParserException, InvalidMemberException
     {
-        Object value = null;
+    	Object result;
+    	TypeNode innerType = type.nextNodes.get(0);
+    	int size = array.length();
+    	
+    	if(type.getNodeActualType().isArray())
+    	{
+    		result = Array.newInstance(innerType.getNodeActualType(), size);
+    		
+    		switch (innerType.getTypeNodeGroup())
+    		{
+    			case Primitive:
+    			{
+    				for(int i = 0; i < size; i++)
+    					Array.set(result, i, getPrimitiveValue(array, innerType, i));
+    			}; break;
+    		
+				case Collection:
+				{
+					JSONArray innerArray; 
+					for(int i = 0; i < size; i++)
+					{
+						innerArray = FailSafeParser.getJSONArray(array, i);
+    					Array.set(result, i, process(innerArray, innerType));
+					}
+				}; break;
+				
+				case Object:
+				{
+					JSONObject jobj;
+					for(int i = 0; i < size; i++)
+					{
+						jobj = FailSafeParser.getJSONObject(array, i);
+    					Array.set(result, i, parse(jobj, innerType.getNodeActualType()));
+					}
+				}; break;
+								
+				default: break;
+			}
+    	}
+    	else
+    	{
+    		// Is a list
+    		List temp = new LinkedList();
+    		result = temp;
+    		
+    		switch (innerType.getTypeNodeGroup())
+    		{
+    			case Primitive:
+    			{
+    				for(int i = 0; i < size; i++)
+    					temp.add(getPrimitiveValue(array, innerType, i));
+    			}; break;
+    		
+				case Collection:
+				{
+					JSONArray innerArray; 
+					for(int i = 0; i < size; i++)
+					{
+						innerArray = FailSafeParser.getJSONArray(array, i);
+    					temp.add(process(innerArray, innerType));
+					}
+				}; break;
+				
+				case Object:
+				{
+					JSONObject jobj;
+					for(int i = 0; i < size; i++)
+					{
+						jobj = FailSafeParser.getJSONObject(array, i);
+    					temp.add(parse(jobj, innerType.getNodeActualType()));
+					}
+				}; break;
+								
+				default: break;
+			}
+    	}
+    	
+		return result;
+	}
 
-        switch (type)
+	/**
+     * Obtains a primitive JSON type value, described in {@link RECOGNIZED_JSON_PRIMITIVES},
+     * from the given key within the given JSONObject obj
+     * @param obj The JSONObject that contains a mapping for the primitive value
+     * @param type The primitive type Class
+     * @param key The json key that maps to a primitive type
+     * @return the primitive JSON value obtained, or null
+     */
+    private static Object getPrimitiveValue(JSONObject json, Class<?> type, String key)
+    {
+    	Object result = null;
+    	
+        if (type.equals(int.class) || type.equals(Integer.class))
         {
-            case STRING:
-                value = FailSafeParser.getString(json, key);
-                break;
-
-            case INT:
-                value = FailSafeParser.getInt(json, key);
-                break;
-
-            case LONG:
-                value = FailSafeParser.getLong(json, key);
-                break;
-
-            case BOOL:
-                value = FailSafeParser.getBool(json, key);
-                break;
-
-            case DOUBLE:
-                value = FailSafeParser.getDouble(json, key);
-                break;
-
-            case DATE:
-                value = FailSafeParser.getDate(json, key);
-                break;
+        	result = FailSafeParser.getInt(json, key);
         }
+        else if (type.equals(double.class) || type.equals(Double.class))
+        {
+        	result = FailSafeParser.getDouble(json, key);
+        }
+        else if (type.equals(boolean.class) || type.equals(Boolean.class))
+        {
+        	result = FailSafeParser.getBool(json, key);
+        }
+        else if (type.equals(String.class))
+        {
+        	result = FailSafeParser.getString(json, key);
+        }
+        else if (type.equals(Date.class))
+        {
+        	result = FailSafeParser.getDate(json, key);	
+        }
+        else if (type.equals(long.class) || type.equals(Long.class))
+        {
+        	result = FailSafeParser.getLong(json, key);	
+        }
+        else if (type.equals(float.class) || type.equals(Float.class))
+        {
+        	Double temp = FailSafeParser.getDouble(json, key);
+        	result = temp == null ? null : new Float(temp);
+        }
+        else if (type.equals(short.class) || type.equals(Short.class))
+        {
+        	Integer temp = FailSafeParser.getInt(json, key);
+        	result = temp == null? null : new Short((short) temp.intValue());
+        }
+        else if (type.equals(char.class) || type.equals(Character.class))
+        {
+        	String temp = FailSafeParser.getString(json, key);
+        	result = temp == null ? null : new Character(temp.charAt(0)); 
+        }
+        
+        return result;
+    }
+    
+   
+    /**
+     * Obtains a primitive JSON type value, described in {@link RECOGNIZED_JSON_PRIMITIVES},
+     * in the given position in the given JSONArray jsonArr
+     * @param jsonArr The JSONArray that contains a primitive value in the given position
+     * @param type The primitive type Class
+     * @param position the position in the array where the primitive value is stored
+     * @return the primitive JSON value obtained, or null
+     */
+    private static Object getPrimitiveValue(JSONArray jsonArr, TypeNode type, int position)
+    {
+    	Object result = null;
+    	
+        if (type.getNodeActualType().equals(int.class) || type.getNodeActualType().equals(Integer.class))
+        {
+        	result = FailSafeParser.getInt(jsonArr, position);
+        }
+        else if (type.getNodeActualType().equals(double.class) || type.getNodeActualType().equals(Double.class))
+        {
+        	result = FailSafeParser.getDouble(jsonArr, position);
+        }
+        else if (type.getNodeActualType().equals(boolean.class) || type.getNodeActualType().equals(Boolean.class))
+        {
+        	result = FailSafeParser.getBool(jsonArr, position);
+        }
+        else if (type.getNodeActualType().equals(String.class))
+        {
+        	result = FailSafeParser.getString(jsonArr, position);
+        }
+        else if (type.getNodeActualType().equals(Date.class))
+        {
+        	result = FailSafeParser.getDate(jsonArr, position);	
+        }
+        else if (type.getNodeActualType().equals(long.class) || type.getNodeActualType().equals(Long.class))
+        {
+        	result = FailSafeParser.getLong(jsonArr, position);	
+        }
+        else if (type.getNodeActualType().equals(float.class) || type.getNodeActualType().equals(Float.class))
+        {
+        	Double temp = FailSafeParser.getDouble(jsonArr, position);
+        	result = temp == null ? null : new Float(temp);
+        }
+        else if (type.getNodeActualType().equals(short.class) || type.getNodeActualType().equals(Short.class))
+        {
+        	Integer temp = FailSafeParser.getInt(jsonArr, position);
+        	result = temp == null? null : new Short((short) temp.intValue());
+        }
+        else if (type.getNodeActualType().equals(char.class) || type.getNodeActualType().equals(Character.class))
+        {
+        	String temp = FailSafeParser.getString(jsonArr, position);
+        	result = temp == null ? null : new Character(temp.charAt(0)); 
+        }
+        
+        return result;
+    }
+        
+		
+    // --[ TYPE INFERENCE ]----------------------------------------------------------------------------
+    
+    private static class TypeNode
+    {
+    	public static TypeNode build(Field field)
+    	{
+    		return new TypeNode(field.getGenericType());
+		}
+    	
+    	public static List<TypeNode> build(Method method)
+    	{
+    		List<TypeNode> argumentTypes = new LinkedList<JSONAnnotationParser.TypeNode>();
+    		
+    		for(Type argumentGnericType : method.getGenericParameterTypes())
+    			argumentTypes.add(new TypeNode(argumentGnericType));
+    		
+    		return argumentTypes;
+		}
+    	
+    	/**
+    	 * Set of classes that are recognized as JSON primitives by the parser
+    	 **/
+    	private static final Set<Class> RECOGNIZED_JSON_PRIMITIVES = new HashSet<Class>(
+    			Arrays.asList(
+    					int.class, double.class, float.class, boolean.class, char.class, short.class, long.class,
+    					Integer.class, Double.class, Float.class, Boolean.class, Character.class, Short.class, Long.class,
+    					String.class, Date.class));
+    	
+    	private Class actualType;
+    	private List<TypeNode> nextNodes;
+    	private TypeGroup group;
+    	
+    	public enum TypeGroup
+    	{
+    		Primitive, Collection, Map, Object, Unparsable
+    	}
+    	
+    	public TypeNode(Type type)
+    	{
+    		nextNodes = new LinkedList<JSONAnnotationParser.TypeNode>();
+    		
+    		if(type instanceof ParameterizedType)
+    		{
+    			ParameterizedType genericType = (ParameterizedType) type;
+    			
+    			actualType = (Class) genericType.getRawType();
+    			    			
+    			for (Type paramType: genericType.getActualTypeArguments()) 
+    				nextNodes.add(new TypeNode(paramType));
+    			
+    			if(actualType.equals(Map.class))
+    			{
+    				if(nextNodes.size() > 0 && nextNodes.get(0).getNodeActualType().equals(String.class))
+    					group = TypeGroup.Map;
+    				else
+    					group = TypeGroup.Unparsable;
+    			}
+    			else if(actualType.equals(List.class) || actualType.equals(Collection.class))
+    				group = TypeGroup.Collection;
+    			else if(JSONParsable.class.isAssignableFrom(actualType))
+    				group = TypeGroup.Object;
+    			else
+    				group = TypeGroup.Unparsable;
+    		}
+    		else
+    		{
+    			actualType = (Class) type;
+    			
+    			if(RECOGNIZED_JSON_PRIMITIVES.contains(actualType)) group = TypeGroup.Primitive;
+    			else if(JSONParsable.class.isAssignableFrom(actualType)) group = TypeGroup.Object;
+    			else if(actualType.isArray())
+    			{
+    				group = TypeGroup.Collection;
+    				nextNodes.add(new TypeNode(actualType.getComponentType()));
+    			}
+    			else
+    				group = TypeGroup.Unparsable;
+    		}
+		}
 
-        return value;
+    	public Class getNodeActualType()
+    	{
+    		return actualType;
+    	}
+    	
+    	public TypeGroup getTypeNodeGroup()
+    	{
+    		return group;
+    	}
+
+    	public boolean hasNextNode()
+    	{
+    		return nextNodes != null && nextNodes.size() > 0;
+    	}
     }
 
-    // --[ EXCEPTIONS ]-----------------------------------------------------------------------------
 
-    public static abstract class JSONParserException extends Exception
+    // --[ EXCEPTIONS ]------------------------------------------------------------------------------
+
+    public static class JSONParserException extends Exception
     {
 		private static final long serialVersionUID = -4922894792026941777L;
+		    	
+    	public enum Reason
+    	{
+    		NON_INSTANCEABLE, NON_ACCESSIBLE, NON_PARSABLE;
+    	}
+    	
+    	String msg;
+    	
+        public JSONParserException(Class<?> c, Reason r)
+        {	
+        	switch (r)
+        	{
+				case NON_INSTANCEABLE:
+					msg = String.format("Type %s is not instanceable. Is it abstract, an interface or missing an empty constructor?", c.getName());
+					break;
+				case NON_ACCESSIBLE:
+					msg = String.format("Type %s is not accessible.", c.getName());
+					break;
+				case NON_PARSABLE:
+					msg = String.format("Type %s is a not parsable type. Please implement the Parsable interface or check the documentation for supported Java types.", c.getName());
+					break;
+			}
+        }
+        
+        public String getHumanReadableReason()
+        { return msg; }
+    }
+    
+    public static class InvalidMemberException extends Exception
+    {
+		private static final long serialVersionUID = -7544254937366361304L;
 		
-		public Class cls;
-
-        public JSONParserException(String msg, Class c)
-        {
-            super(msg);
-            this.cls = c;
-        }
-
-        public JSONParserException(String msg, Throwable t, Class c)
-        {
-            super(msg, t);
-            this.cls = c;
-        }
-
-        public abstract String getHumanReadableReason();
-    }
-
-    public static abstract class AnnotationGenericException extends JSONParserException
-    {
-		private static final long serialVersionUID = 8619016078969492540L;
+		public InvalidMemberException(Class<?> type, Field f)
+		{
+			super(String.format("Field %s in type %s is inaccessible", f.getName()));
+		}
 		
-		public Field field;
-        public Method method;
-
-        public AnnotationGenericException(String msg, Class c, Field f)
-        {
-            super(msg, c);
-            field = f;
-            method = null;
-        }
-
-        public AnnotationGenericException(String msg, Class c, Method m)
-        {
-            super(msg, c);
-            this.method = m;
-            this.field = null;
-        }
-
-        public AnnotationGenericException(String msg, Class c, Method m, Field f)
-        {
-            super(msg, c);
-            this.method = m;
-            this.field = f;
-        }
-    }
-
-    public static class InvalidMemberException extends AnnotationGenericException
-    {
-		private static final long serialVersionUID = -4538929064566221037L;
-
-		public InvalidMemberException(Class c, Field f, Method m)
-        {
-            super(c.getName(), c, m, f);
-        }
-
-        @Override
-        public String getHumanReadableReason()
-        {
-            if(method != null)
-                return String.format("Invalid method %s", method.getName());
-            if(field != null)
-                return String.format("Invalid field %s", field.getName());
-
-            return "";
-        }
-    }
-
-    public static class MissingAnnotationException extends AnnotationGenericException
-    {
-		private static final long serialVersionUID = 3522044727658136834L;
+		public InvalidMemberException(Class<?> type, Method m)
+		{
+			super(String.format("Method %s in type %s is inaccessible", m.getName()));
+		}
 		
-		public Class<? extends Annotation> annotation_t;
-
-        public MissingAnnotationException(Class<? extends Annotation> a, Class c, Field f, Method m)
-        {
-            super("Missing annotation", c, m, f);
-            this.annotation_t = a;
-        }
-
-        @Override
-        public String getHumanReadableReason()
-        {
-            String start = String.format("Missing annotation %s in class %s",
-                                 annotation_t.getName(), cls.getName());
-
-            if(method != null)
-                return start + String.format(", method %s", method.getName());
-            if(field != null)
-                return start + String.format(", field %s", field.getName());
-
-            return start;
-        }
-    }
-
-    /** Thrown for an invalid annotation while parsing **/
-    public static class InvalidAnnotationException extends AnnotationGenericException
-    {
-		private static final long serialVersionUID = -5499912785882304884L;
-		
-		public Annotation annotation;
-
-        public InvalidAnnotationException(Annotation a, Class c, Field f, Method m)
-        {
-            super("Invalid annotation", c, m, f);
-            this.annotation = a;
-        }
-
-        @Override
-        public String getHumanReadableReason()
-        {
-            String start =  String.format("Invalid annotation %s in class %s",
-                                 annotation.annotationType().getName(), cls.getName());
-
-            if(method != null)
-                return start + String.format(", method %s", method.getName());
-            if(field != null)
-                return start + String.format(", field %s", field.getName());
-
-            return start;
-        }
-    }
-
-    public static class DuplicatedAnnotationException extends AnnotationGenericException
-    {
-		private static final long serialVersionUID = -4937157683494656980L;
-
-		public DuplicatedAnnotationException(Class cls, Field f, Method m)
-        {
-            super("Duplicated JSON Annotation", cls, m, f);
-        }
-
-        @Override
-        public String getHumanReadableReason()
-        {
-            String start = String.format("Duplicated annotations in class %s", cls);
-
-            if(method != null)
-                return start + String.format(", method %s", method.getName());
-            if(field != null)
-                return start + String.format(", field %s", field.getName());
-
-            return start;
-        }
-    }
-
-    /** Thrown when attempting to parse a type */
-    public static class UnparsableTypeException extends JSONParserException
-    {
-		private static final long serialVersionUID = 1885490338971282647L;
-		public UnparsableReason reason;
-
-        public <T> UnparsableTypeException(Class<T> objType, UnparsableReason reason)
-        {
-            super(String.format("Unparsable class: %s", objType.getName()), objType);
-            this.reason = reason;
-        }
-
-        @Override
-        public String getHumanReadableReason()
-        {
-            switch (reason)
-            {
-                case NO_EMPTY_CONSTRUCTOR:
-                    return String.format("No empty constructor in class %s", cls.getName());
-                case NOT_ACCESSIBLE:
-                    return String.format("Class %s is not accessible", cls.getName());
-                default:
-                    return cls.getName();
-            }
-        }
-
-        public enum UnparsableReason
-        {
-            NO_EMPTY_CONSTRUCTOR, NOT_ACCESSIBLE
-        }
+		public String getHumanReadableReason()
+        { return super.getMessage(); }
     }
 }
